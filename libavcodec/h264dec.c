@@ -870,6 +870,19 @@ static int is_extra(const uint8_t *buf, int buf_size)
     return 1;
 }
 
+static int h264_export_qp_table(H264Context *h, AVFrame *f, H264Picture *p, int qp_type)
+{
+    AVBufferRef *ref = av_buffer_ref(p->qscale_table_buf);
+    int offset = 2*h->mb_stride + 1;
+    if(!ref)
+        return AVERROR(ENOMEM);
+    av_assert0(ref->size >= offset + h->mb_stride * ((f->height+15)/16));
+    ref->size -= offset;
+    ref->data += offset;
+    return av_frame_set_qp_table(f, ref, h->mb_stride, f->qscale_type);
+}
+
+
 static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *got_frame)
 {
     int ret;
@@ -907,14 +920,23 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
 
         *got_frame = 1;
 
-        if (CONFIG_MPEGVIDEO) {
+
             ff_print_debug_info2(h->avctx, dst, NULL,
                                  out->mb_type,
                                  out->qscale_table,
                                  out->motion_val,
                                  NULL,
                                  h->mb_width, h->mb_height, h->mb_stride, 1);
-        }
+            
+            int macroblockPerLine = h->width / 16 + 1;
+            int allMacroblockCount = ((h->height + 15) >> 4) * macroblockPerLine;
+            dst->opaque = av_malloc(sizeof(uint32_t)*allMacroblockCount);
+            memcpy(dst->opaque, out->mb_type, allMacroblockCount * sizeof(uint32_t) );
+            
+                
+            
+             h264_export_qp_table(h, dst, out, FF_QSCALE_TYPE_H264);
+        
     }
 
     return 0;
